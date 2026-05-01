@@ -10,6 +10,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    
+    # 【新增】明确授予 GITHUB_TOKEN 写入权限。
+    # 较新的 GitHub 仓库默认只有读取权限，不加此项会导致 Create Release 步骤报 403 错误。
+    permissions:
+      contents: write
 
     steps:
     - name: Checkout repository
@@ -25,8 +30,9 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
+    # 【修改】针对 Gradle 9+ 与老版本 AGP 的兼容性问题，临时禁用配置缓存并开启详细堆栈。
     - name: Build Debug APK
-      run: ./gradlew assembleDebug -Dorg.gradle.jvmargs=-Xmx4096m -Dorg.gradle.workers.max=4
+      run: ./gradlew assembleDebug --stacktrace --no-configuration-cache -Dorg.gradle.jvmargs="-Xmx4096m -XX:+UseParallelGC" -Dorg.gradle.workers.max=4
       env:
         GRADLE_USER_HOME: ${{ runner.temp }}/.gradle
 
@@ -38,22 +44,28 @@ jobs:
         retention-days: 7
         if-no-files-found: warn
 
+    # 【修改】增加容错处理，防止因构建失败找不到 APK 导致脚本报错
     - name: Get APK info
       id: apk_info
       run: |
         APK_PATH=$(find app/build/outputs/apk/debug -name "*.apk" | head -1)
+        if [ -z "$APK_PATH" ]; then
+          echo "Error: 未找到 APK 文件！"
+          exit 1
+        fi
         APK_NAME=$(basename "$APK_PATH")
         APK_SIZE=$(du -h "$APK_PATH" | cut -f1)
         echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
         echo "apk_name=$APK_NAME" >> $GITHUB_OUTPUT
         echo "apk_size=$APK_SIZE" >> $GITHUB_OUTPUT
 
+    # 【修改】升级到 v2，解决 Node.js 16 弃用警告，并将旧参数 release_name 更名为 name
     - name: Create Release
       if: github.event_name == 'push' && github.ref == 'refs/heads/main' && success()
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ github.run_number }}
-        release_name: Release v${{ github.run_number }}
+        name: Release v${{ github.run_number }}
         body: |
           ## 构建信息
           - **构建号**: ${{ github.run_number }}
@@ -68,10 +80,13 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+    # 【修改】增加 app 目录下的报告路径，Android 构建报错通常在 app/build 目录下
     - name: Upload build reports on failure
       if: failure()
       uses: actions/upload-artifact@v4
       with:
         name: build-reports
-        path: build/reports/
+        path: |
+          build/reports/
+          app/build/reports/
         retention-days: 14
