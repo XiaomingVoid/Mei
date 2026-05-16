@@ -19,11 +19,15 @@ import com.ljyh.mei.data.network.Resource
 import com.ljyh.mei.data.network.api.ApiService
 import com.ljyh.mei.data.network.api.WeApiService
 import com.ljyh.mei.data.network.safeApiCall
+import android.util.Base64
+import com.ljyh.mei.data.model.api.CheckSongLike
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okio.IOException
+import timber.log.Timber
+import java.util.concurrent.TimeUnit
 
 class PlayerRepository(
     private val qqMusicUApiService: QQMusicUApiService,
@@ -44,6 +48,10 @@ class PlayerRepository(
         }
     }
 
+    private fun b64encode(str: String): String {
+        return Base64.encodeToString(str.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+    }
+
     suspend fun getLyricNew(
         title: String,
         album: String,
@@ -56,14 +64,42 @@ class PlayerRepository(
                 qqMusicUApiService.getLyric(
                     GetLyricData(
                         comm = GetLyricData.Comm(),
-                        getPlayLyricInfo =GetLyricData.GetPlayLyricInfo(
+                        getPlayLyricInfo = GetLyricData.GetPlayLyricInfo(
                             param = GetLyricData.GetPlayLyricInfo.GetLyric(
-                                singerName = artist,
-                                songName = title,
-                                albumName = album,
+                                singerName = b64encode(artist),
+                                songName = b64encode(title),
+                                albumName = b64encode(album),
                                 interval = duration,
                                 songID = id
+                            )
+                        )
+                    )
+                )
+            }
+        }
+    }
 
+    suspend fun getLyricLrc(
+        title: String,
+        album: String,
+        artist: String,
+        duration: Long,
+        id: Long
+    ): Resource<LyricResult> {
+        return withContext(Dispatchers.IO) {
+            safeApiCall {
+                qqMusicUApiService.getLyric(
+                    GetLyricData(
+                        comm = GetLyricData.Comm(),
+                        getPlayLyricInfo = GetLyricData.GetPlayLyricInfo(
+                            param = GetLyricData.GetPlayLyricInfo.GetLyric(
+                                singerName = b64encode(artist),
+                                songName = b64encode(title),
+                                albumName = b64encode(album),
+                                interval = duration,
+                                songID = id,
+                                qrc = 0,
+                                qrcT = 0
                             )
                         )
                     )
@@ -107,35 +143,35 @@ class PlayerRepository(
         )
     }
 
+    private val amllClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .build()
+
     suspend fun getAMLLyric(id: String): Resource<String> {
         return withContext(Dispatchers.IO) {
             try {
                 val url = "https://amlldb.bikonoo.com/ncm-lyrics/$id.ttml"
-                val request = Request.Builder()
-                    .url(url)
-                    .build()
-                // 使用 execute() 进行同步请求，因为我们已在 IO 协程中
-                val response = OkHttpClient().newCall(request).execute()
+                val request = Request.Builder().url(url).build()
 
-                if (response.isSuccessful) {
-                    val lyricContent = response.body?.string()
-                    // 检查响应体是否有效且不是"歌词不存在"的特定字符串
-                    if (!lyricContent.isNullOrEmpty() && lyricContent != "歌词不存在") {
-                        Resource.Success(lyricContent)
+                val result = amllClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val lyricContent = response.body?.string()
+                        if (!lyricContent.isNullOrEmpty() && lyricContent != "歌词不存在") {
+                            Resource.Success(lyricContent)
+                        } else {
+                            Resource.Error("歌词不存在")
+                        }
                     } else {
-                        // 服务器成功响应，但内容表明歌词不存在
-                        Resource.Error("歌词不存在")
-                    }
-                } else {
-                    // 处理 HTTP 错误，例如 404 Not Found 也意味着歌词不存在
-                    if (response.code == 404) {
-                        Resource.Error("歌词不存在")
-                    } else {
-                        Resource.Error("请求失败，错误码: ${response.code}")
+                        if (response.code == 404) {
+                            Resource.Error("歌词不存在")
+                        } else {
+                            Resource.Error("请求失败，错误码: ${response.code}")
+                        }
                     }
                 }
+                result
             } catch (e: IOException) {
-                // 处理网络连接等 IO 异常
                 Resource.Error("网络异常，请检查你的网络连接")
             }
         }
@@ -170,6 +206,16 @@ class PlayerRepository(
                 apiService.getSongDetail(
                     GetSongDetails(id)
                 )
+            }
+        }
+    }
+
+    suspend fun checkSongLike(id: Long): Resource<Boolean>{
+        return withContext(Dispatchers.IO){
+            safeApiCall {
+                val result = apiService.checkSongLike(CheckSongLike("[${id}]"))
+                Timber.tag("Player Repo").d(result.toString())
+                result.ids.contains(id)
             }
         }
     }

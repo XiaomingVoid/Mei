@@ -4,7 +4,6 @@ import com.google.gson.JsonDeserializationContext
 import com.google.gson.JsonDeserializer
 import com.google.gson.JsonElement
 import com.ljyh.mei.constants.AndroidUserAgent
-import com.ljyh.mei.data.network.QQMusicCApiService
 import com.ljyh.mei.data.network.QQMusicUApiService
 import com.ljyh.mei.data.network.api.ApiService
 import com.ljyh.mei.data.network.api.EApiService
@@ -18,7 +17,6 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import retrofit2.converter.scalars.ScalarsConverterFactory
 import timber.log.Timber
 import java.lang.reflect.Type
 import java.security.cert.X509Certificate
@@ -127,28 +125,36 @@ object RetrofitModule {
 
     @Singleton
     @Provides
-    @Named("qqMusicRetrofitC")
-    fun provideQQMusicRetrofitC(): Retrofit {
+    @Named("qqMusicRetrofitU")
+    fun provideQQMusicRetrofitU(@Named("qqMusicOkHttp") okHttpClient: OkHttpClient): Retrofit {
         return Retrofit.Builder()
-            .baseUrl("https://c.y.qq.com/")  // 另一个 API 的 baseUrl
-            .addConverterFactory(ScalarsConverterFactory.create())
+            .baseUrl("https://u.y.qq.com/")
+            .addConverterFactory(GsonConverterFactory.create())
+            .client(okHttpClient)
             .build()
     }
 
     @Singleton
     @Provides
-    fun provideQQMusicApiServiceC(@Named("qqMusicRetrofitC") retrofit: Retrofit): QQMusicCApiService {
-        return retrofit.create(QQMusicCApiService::class.java)
-    }
-
-
-    @Singleton
-    @Provides
-    @Named("qqMusicRetrofitU")
-    fun provideQQMusicRetrofitU(): Retrofit {
-        return Retrofit.Builder()
-            .baseUrl("https://u.y.qq.com/")  // 另一个 API 的 baseUrl
-            .addConverterFactory(GsonConverterFactory.create())
+    @Named("qqMusicOkHttp")
+    fun provideQQMusicOkHttpClient(): OkHttpClient {
+        return OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+                val request = chain.request().newBuilder()
+                    .header(
+                        "User-Agent",
+                        "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.164 Safari/537.36"
+                    )
+                    .header("Referer", "https://y.qq.com/")
+                    .build()
+                chain.proceed(request)
+            }
+            .addInterceptor(HttpLoggingInterceptor().apply {
+                level = if (DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
+            })
             .build()
     }
 

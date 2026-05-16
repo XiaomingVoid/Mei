@@ -9,6 +9,9 @@ object QRCUtils {
         DES_ENCRYPT,
         DES_DECRYPT
     }
+
+    private val extractQrcRe = Regex("""<Lyric_1 LyricType="1" LyricContent="(.*?)"/>""", RegexOption.DOT_MATCHES_ALL)
+    private val extractLrcRe = Regex("""<Lyric_1 LyricType="0" LyricContent="(.*?)"/>""", RegexOption.DOT_MATCHES_ALL)
     private fun bitNum(a: ByteArray, b: Int, c: Int): Long {
         val byteIndex = (b / 32) * 4 + 3 - (b % 32) / 8
         val bitPosition = 7 - (b % 8)
@@ -502,7 +505,7 @@ object QRCUtils {
         return bytes.joinToString("") { "%02X".format(it) }
     }
 
-    //传入歌词
+//传入歌词
     fun decodeLyric(data: String,isTranslation:Boolean=false): String {
         if(data=="") return ""
         try {
@@ -510,17 +513,22 @@ object QRCUtils {
             val decodedContents = lyricDecode(decodedData, decodedData.size)
             val gzipInputStream = decompressZlib(decodedContents)
             val lyric = gzipInputStream.toString(Charsets.UTF_8)
-            if(isTranslation) return lyric
 
-            val extractXmlRe =Regex("""<Lyric_1 LyricType="1" LyricContent="(.*?)"/>""", RegexOption.DOT_MATCHES_ALL)
-
-            val qrcLyric = extractXmlRe.find(lyric)
+            val qrcLyric = extractQrcRe.find(lyric)
             if (qrcLyric != null) {
                 return qrcLyric.groupValues[1]
-            } else {
-                return ""
-
             }
+
+            val lrcLyric = extractLrcRe.find(lyric)
+            if (lrcLyric != null) {
+                return lrcLyric.groupValues[1]
+            }
+
+            if (lyric.startsWith("[")) {
+                return lyric
+            }
+
+            return lyric
         }catch (e: Exception){
             Log.e("QRCUtils", "decodeLyric: ${e.message}")
             return ""

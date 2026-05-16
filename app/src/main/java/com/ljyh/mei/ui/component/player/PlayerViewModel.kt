@@ -6,6 +6,7 @@ import androidx.datastore.dataStore
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ljyh.mei.AppContext
+import com.ljyh.mei.constants.UserIdKey
 import com.ljyh.mei.data.model.Lyric
 import com.ljyh.mei.data.model.MediaMetadata
 import com.ljyh.mei.data.model.Tracks
@@ -13,7 +14,6 @@ import com.ljyh.mei.data.model.UserPlaylist
 import com.ljyh.mei.data.model.api.CreatePlaylistResult
 import com.ljyh.mei.data.model.api.Intelligence
 import com.ljyh.mei.data.model.qq.u.SearchResult
-import com.ljyh.mei.data.model.room.Like
 import com.ljyh.mei.data.model.room.Playlist
 import com.ljyh.mei.data.model.room.QQSong
 import com.ljyh.mei.data.model.weapi.Radio
@@ -29,6 +29,7 @@ import com.ljyh.mei.ui.model.LyricData
 import com.ljyh.mei.ui.model.MoreAction
 import com.ljyh.mei.ui.model.SortOrder
 import com.ljyh.mei.utils.dataStore
+import com.ljyh.mei.utils.get
 import com.ljyh.mei.utils.lyric.LyricManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,6 +39,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -58,8 +60,8 @@ class PlayerViewModel @Inject constructor(
     val searchResult: StateFlow<Resource<SearchResult>> = lyricManager.qqSearchResult
     val lyric: StateFlow<LyricData> = lyricManager.lyricData
 
-    private val _like = MutableStateFlow<Like?>(null)
-    val like: StateFlow<Like?> = _like
+    private val _like = MutableStateFlow<Resource<Boolean>>(Resource.Loading)
+    val like: StateFlow<Resource<Boolean>> = _like
 
     private val _networkPlaylistsState = MutableStateFlow<Resource<UserPlaylist>>(Resource.Loading)
     val networkPlaylistsState: StateFlow<Resource<UserPlaylist>> = _networkPlaylistsState
@@ -78,45 +80,40 @@ class PlayerViewModel @Inject constructor(
 
     var mediaMetadata: MediaMetadata? = null
 
+    val userId = AppContext.instance.dataStore[UserIdKey] ?: ""
+
     val localPlaylists: StateFlow<List<Playlist>> = localPlaylistRepository.getAllPlaylist()
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000L), // 5秒内无订阅者则停止
-            initialValue = emptyList() // 初始值为空列表
+            started = SharingStarted.WhileSubscribed(5000L),
+            initialValue = emptyList()
+        )
+
+    val myPlaylists: StateFlow<List<Playlist>> = localPlaylistRepository.getAllPlaylist()
+        .map { it.filter { p -> p.author == userId } }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000L),
+            initialValue = emptyList()
         )
 
     // 获取点赞状态
-    fun getLike(id: String) {
+    fun getLike(id: Long) {
         viewModelScope.launch {
-            _like.value = likeRepository.getLike(id) // 只更新一次
+            Timber.tag("PlayerViewModel").d("get like $id")
+            _like.value = repository.checkSongLike(id)
         }
     }
 
     // 切换点赞状态
-    // TODO 优化逻辑，需要toast提示
     fun like(id: String) {
         viewModelScope.launch {
             try {
-                // 1. 缓存当前状态，避免多次查询
-                val currentLike = _like.value ?: likeRepository.getLike(id)
-
-                // 2. 确定点赞标志 (true: 点赞，false: 取消点赞)
-                val like = currentLike == null
-
-                // 3. 发送点赞状态到服务器
-                repository.like(id, like)
-
-                // 4. 更新数据库和 UI
-                if (like) {
-                    val newLike = Like(id)
-                    likeRepository.insertLike(newLike)
-                    _like.value = newLike
-                } else {
-                    likeRepository.deleteLike(id)
-                    _like.value = null
-                }
+                val currentLiked = (_like.value as? Resource.Success)?.data == true
+                repository.like(id, !currentLiked)
+                _like.value = Resource.Success(!currentLiked)
             } catch (e: Exception) {
-                e.printStackTrace() // 处理异常，防止崩溃
+                e.printStackTrace()
             }
         }
     }
@@ -144,6 +141,10 @@ class PlayerViewModel @Inject constructor(
             qqSongRepository.deleteSongById(id)
             lyricManager.loadLyrics(mediaMetadata ?: return@launch)
         }
+    }
+
+    suspend fun getQQSongId(metadataId: Long): String? {
+        return qqSongRepository.getQQSong(metadataId.toString()).firstOrNull()?.qid
     }
 
 

@@ -53,6 +53,10 @@ class PlayerOverlayHandler(
      * 显示添加到播放列表弹窗
      */
     fun showAddToPlaylist(mediaId: Long) {
+        val uid = stateContainer.playerViewModel.userId
+        if (uid.isNotEmpty()) {
+            stateContainer.playerViewModel.syncUserPlaylists(uid)
+        }
         _currentOverlay.value = OverlayState.AddToPlaylist(mediaId)
     }
 
@@ -105,6 +109,10 @@ class PlayerOverlayHandler(
         _currentOverlay.value = OverlayState.TrackActionMenu(track)
     }
 
+    fun showSongInfo(metadata: MediaMetadata) {
+        _currentOverlay.value = OverlayState.SongInfo(metadata)
+    }
+
     /**
      * 关闭当前弹窗
      */
@@ -144,6 +152,11 @@ class PlayerOverlayHandler(
             }
             MoreAction.BOTTOM_ACTION -> {
                 showBottomAction()
+            }
+            MoreAction.SONG_INFO -> {
+                mediaMetadata?.let {
+                    showSongInfo(it)
+                }
             }
         }
     }

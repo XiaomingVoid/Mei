@@ -21,6 +21,7 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -57,7 +58,6 @@ import com.ljyh.mei.utils.setClipboard
 import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine
 import com.mocharealm.accompanist.lyrics.core.model.synced.SyncedLine
 import com.mocharealm.accompanist.lyrics.ui.composable.lyrics.KaraokeLyricsView
-import kotlinx.coroutines.android.awaitFrame
 import kotlinx.coroutines.delay
 
 @OptIn(UnstableApi::class)
@@ -76,13 +76,13 @@ fun LyricScreen(
     var animatedPosition by remember { mutableLongStateOf(0) }
     val (normalLyricTextSize, _) = rememberEnumPreference(
         NormalLyricTextSizeKey,
-        LyricTextSize.Size32
+        LyricTextSize.Size24
     )
     val (normalLyricTextBold, _) = rememberPreference(NormalLyricTextBoldKey, true)
 
     val (accompanimentLyricTextSize, _) = rememberEnumPreference(
         AccompanimentLyricTextSizeKey,
-        LyricTextSize.Size20
+        LyricTextSize.Size18
     )
     val (accompanimentLyricTextBold, _) = rememberPreference(AccompanimentLyricTextBoldKey, true)
 
@@ -116,7 +116,7 @@ fun LyricScreen(
                 animatedPosition = (playerConnection.player.currentPosition).coerceAtMost(
                     playerConnection.player.duration
                 )
-                awaitFrame()
+                delay(50)
             }
         } else {
             animatedPosition = playerConnection.player.currentPosition
@@ -137,6 +137,7 @@ fun LyricScreen(
                 .weight(1f)
         ) {
             if (lyricData.lyricLine.lines.isNotEmpty()) {
+                key(System.identityHashCode(lyricData.lyricLine)) {
                 KaraokeLyricsView(
                     listState = listState,
                     lyrics = lyricData.lyricLine,
@@ -185,6 +186,7 @@ fun LyricScreen(
                         textMotion = TextMotion.Animated,
                     )
                 )
+                }
 
                 LyricSourceBadge(
                     source = lyricData.source,

@@ -16,9 +16,12 @@ import com.ljyh.mei.utils.encrypt.QRCUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlin.math.abs
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
+
+@OptIn(kotlinx.coroutines.FlowPreview::class)
 
 @Singleton
 class LyricManager @Inject constructor(
@@ -45,7 +48,8 @@ class LyricManager @Inject constructor(
     init {
         combine(netLyricResult, qqLyricResult, amLyricResult) { net, qq, am ->
             Triple(net, qq, am)
-        }.onEach { (net, qq, am) ->
+        }.sample(50)
+         .onEach { (net, qq, am) ->
             mergeAndApply(net, qq, am)
         }.launchIn(scope)
     }
@@ -62,6 +66,7 @@ class LyricManager @Inject constructor(
         qqLyricResult.value = Resource.Loading
         amLyricResult.value = Resource.Loading
         _qqSearchResult.value = Resource.Loading
+        lrcFallbackContent = null
 
         fetchJob = scope.launch {
             delay(100)
@@ -69,10 +74,35 @@ class LyricManager @Inject constructor(
             launch { fetchNetEaseLyric(songId) }
             launch { fetchAMLLyric(songId) }
 
-            // Load cached QQ song mapping if available
             val localSong = qqSongRepository.getQQSong(songId).firstOrNull()
             if (localSong != null) {
                 fetchQQLyric(localSong)
+            } else {
+                autoSearchAndPickBest(metadata)
+            }
+        }
+    }
+
+    private suspend fun autoSearchAndPickBest(metadata: MediaMetadata) {
+        val result = repository.searchNew(metadata.title)
+        _qqSearchResult.value = result
+        if (result is Resource.Success) {
+            val currentDurationSec = metadata.duration / 1000
+            val songs = result.data.req0.data.body.song.list
+            val best = songs.take(5).firstOrNull { song ->
+                abs(currentDurationSec - song.interval) <= 5
+            }
+            if (best != null) {
+                val qqSong = QQSong(
+                    id = metadata.id.toString(),
+                    qid = best.id.toString(),
+                    title = best.title,
+                    artist = best.singer.joinToString(",") { it.name },
+                    album = best.album.title,
+                    duration = best.interval
+                )
+                qqSongRepository.insertSong(qqSong)
+                fetchQQLyric(qqSong)
             }
         }
     }
@@ -95,17 +125,56 @@ class LyricManager @Inject constructor(
         }
     }
 
+    private var currentQQSong: QQSong? = null
+
     fun fetchQQLyric(song: QQSong) {
         scope.launch {
+            currentQQSong = song
             qqLyricResult.value = Resource.Loading
             try {
-                qqLyricResult.value = repository.getLyricNew(
+                val result = repository.getLyricNew(
                     song.title, song.album, song.artist, song.duration, song.qid.toLong()
                 )
+                qqLyricResult.value = result
+                if (result is Resource.Success) {
+                    val qrcT = result.data.musicMusichallSongPlayLyricInfoGetPlayLyricInfo.data.qrcT
+                    if (qrcT != 0) {
+                        fetchQQLyricLrc(song)
+                    }
+                }
             } catch (e: Exception) {
                 Timber.e(e, "QQ fetch error")
                 qqLyricResult.value = Resource.Error("QQ fetch failed")
             }
+        }
+    }
+
+    private suspend fun fetchQQLyricLrc(song: QQSong) {
+        try {
+            val lrcResult = repository.getLyricLrc(
+                song.title, song.album, song.artist, song.duration, song.qid.toLong()
+            )
+            if (lrcResult is Resource.Success) {
+                val lrcContent = QRCUtils.decodeLyric(
+                    lrcResult.data.musicMusichallSongPlayLyricInfoGetPlayLyricInfo.data.lyric
+                )
+                lrcFallbackContent = lrcContent
+                remergeLyrics()
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "QQ LRC fallback fetch error")
+        }
+    }
+
+    private var lrcFallbackContent: String? = null
+
+    private fun remergeLyrics() {
+        scope.launch {
+            mergeAndApply(
+                netLyricResult.value,
+                qqLyricResult.value,
+                amLyricResult.value
+            )
         }
     }
 
@@ -124,12 +193,13 @@ class LyricManager @Inject constructor(
             (net as? Resource.Success)?.data?.let { sources.add(LyricSourceData.NetEase(it)) }
             (qq as? Resource.Success)?.data?.musicMusichallSongPlayLyricInfoGetPlayLyricInfo?.data?.let { data ->
                 try {
+                    val isQRC = data.qrcT != 0
                     val decoded = data.copy(
                         lyric = QRCUtils.decodeLyric(data.lyric),
                         trans = QRCUtils.decodeLyric(data.trans, true),
                         roma = QRCUtils.decodeLyric(data.roma)
                     )
-                    sources.add(LyricSourceData.QQMusic(decoded))
+                    sources.add(LyricSourceData.QQMusic(decoded, isQRC, lrcFallbackContent))
                 } catch (e: Exception) {
                     Timber.e(e, "QRC decoding failed")
                 }

@@ -68,10 +68,9 @@ import coil3.size.Precision
 import coil3.size.Size
 import com.ljyh.mei.constants.PlayerHorizontalPadding
 import com.ljyh.mei.constants.ThumbnailCornerRadius
-import com.ljyh.mei.data.network.Resource
 import com.ljyh.mei.ui.component.player.MiniPlayer
 import com.ljyh.mei.ui.component.player.OverlayState
-import com.ljyh.mei.ui.component.player.component.SPlayerFluidBackground
+import com.ljyh.mei.ui.component.player.component.FluidBackground
 import com.ljyh.mei.ui.component.player.component.LyricScreen
 import com.ljyh.mei.utils.audio.AudioVisualizerManager
 import com.ljyh.mei.ui.component.player.component.PlayerControlsSection
@@ -86,7 +85,7 @@ import com.ljyh.mei.utils.UnitUtils.toPx
 import kotlin.math.min
 
 
-@RequiresApi(Build.VERSION_CODES.S)
+
 @OptIn(UnstableApi::class)
 @Composable
 fun AppleMusicPlayer(
@@ -237,9 +236,10 @@ fun AppleMusicPlayer(
                 }
             }
 
-            SPlayerFluidBackground(
+            FluidBackground(
                 imageUrl = coverUrl,
-                audioVisualizerManager = audioVisualizerManager
+                audioVisualizerManager = audioVisualizerManager,
+                isPlaying = isPlaying
             )
 
             Box(modifier = Modifier.fillMaxSize()) {
@@ -335,7 +335,7 @@ fun AppleMusicPlayer(
                             Title(
                                 title = mediaMetadata!!.title,
                                 subTitle = mediaMetadata!!.artists.joinToString { it.name },
-                                isLiked = isLiked != null,
+                                isLiked = isLiked,
                                 onLikeClick = { mediaMetadata?.let { stateContainer.playerViewModel.like(it.id.toString()) } },
                                 onMoreClick = { overlayHandler.showMoreAction() },
                                 onTitleClick = {
@@ -380,7 +380,7 @@ fun AppleMusicPlayer(
                                     Title(
                                         title = it.title,
                                         subTitle = it.artists.joinToString { artist -> artist.name },
-                                        isLiked = isLiked != null,
+                                        isLiked = isLiked,
                                         onLikeClick = { stateContainer.playerViewModel.like(it.id.toString()) },
                                         onMoreClick = { overlayHandler.showMoreAction() },
                                         onTitleClick = {
