@@ -65,10 +65,8 @@ import com.ljyh.mei.data.model.api.GetSongUrlV1
 import com.ljyh.mei.data.model.room.Song
 import com.ljyh.mei.data.network.api.ApiService
 import com.ljyh.mei.data.network.api.WeApiService
-import com.ljyh.mei.di.HistoryDao
-import com.ljyh.mei.di.HistoryRepository
-import com.ljyh.mei.di.SongDao
-import com.ljyh.mei.di.SongRepository
+import com.ljyh.mei.di.repository.HistoryRepository
+import com.ljyh.mei.di.repository.SongRepository
 import com.ljyh.mei.extensions.currentMetadata
 import com.ljyh.mei.extensions.mediaItems
 import com.ljyh.mei.playback.CacheManager.getCacheDataSourceFactory
@@ -424,7 +422,9 @@ class MusicService : MediaLibraryService(),
         return ResolvingDataSource.Factory(getCacheDataSourceFactory(context)) { dataSpec ->
             val mediaId = dataSpec.key ?: error("No media key")
             val localFilePath = runBlocking {
-                songRepository.getSong(mediaId).firstOrNull()?.path
+                val song = songRepository.getSong(mediaId).firstOrNull()
+                    ?: songRepository.getSong("local_$mediaId").firstOrNull()
+                song?.path
             }
             if (localFilePath != null) {
                 val file = File(localFilePath)
@@ -433,10 +433,8 @@ class MusicService : MediaLibraryService(),
                     return@Factory dataSpec.withUri(Uri.fromFile(file))
                 }
             }
-            // 检查磁盘缓存 (ExoPlayer Cache) 是否已完全缓存
             if (isContentFullyCached(simpleCache, mediaId)) {
                 Timber.tag("ResolvingDataSource").d("Fully cached on disk: $mediaId")
-                // 直接返回原始 DataSpec 即可，CacheDataSource 会自动从磁盘读
                 return@Factory dataSpec
             }
 

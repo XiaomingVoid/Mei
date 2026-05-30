@@ -14,9 +14,15 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import androidx.compose.ui.platform.LocalContext
+import com.ljyh.mei.di.AppDatabase
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import com.ljyh.mei.ui.screen.about.AboutScreen
 import com.ljyh.mei.ui.screen.album.AlbumDetailScreen
 import com.ljyh.mei.ui.screen.history.HistoryScreen
+import com.ljyh.mei.ui.screen.local.LocalMusicScreen
+import com.ljyh.mei.ui.screen.local.LocalSongListScreen
 import com.ljyh.mei.ui.screen.main.home.HomeScreen
 import com.ljyh.mei.ui.screen.main.library.LibraryScreen
 import com.ljyh.mei.ui.screen.playlist.EveryDay
@@ -26,6 +32,8 @@ import com.ljyh.mei.ui.screen.setting.AppearanceSettings
 import com.ljyh.mei.ui.screen.artist.ArtistScreen
 import com.ljyh.mei.ui.screen.main.findmusic.FindMusicScreen
 import com.ljyh.mei.ui.screen.setting.ContentsSetting
+import com.ljyh.mei.ui.screen.setting.DownloadManageScreen
+import com.ljyh.mei.ui.screen.setting.DownloadSetting
 import com.ljyh.mei.ui.screen.setting.PlaySetting
 import com.ljyh.mei.ui.screen.setting.SettingScreen
 import com.ljyh.mei.ui.screen.log.LogScreen
@@ -65,6 +73,70 @@ fun NavGraphBuilder.navigationBuilder(
     }
     composable(Screen.PlaySettings.route){
         PlaySetting(scrollBehavior)
+    }
+
+    composable(Screen.DownloadSettings.route) {
+        DownloadSetting(scrollBehavior)
+    }
+
+    composable(Screen.DownloadManage.route) {
+        DownloadManageScreen(scrollBehavior)
+    }
+
+    composable(Screen.LocalMusic.route) {
+        LocalMusicScreen(scrollBehavior)
+    }
+
+    composable(
+        route = "${Screen.LocalSongList.route}/{type}/{name}",
+        arguments = listOf(
+            navArgument("type") { type = NavType.StringType },
+            navArgument("name") { type = NavType.StringType }
+        )
+    ) {
+        val type = it.arguments?.getString("type") ?: "all"
+        val name = it.arguments?.getString("name") ?: ""
+        val context = LocalContext.current
+
+        val filterValue: String
+        val title: String
+
+        when (type) {
+            "folder_id" -> {
+                val folderId = name.toLongOrNull()
+                val folder = if (folderId != null) {
+                    runBlocking { AppDatabase.getDatabase(context).scanFolderDao().getAll().first().find { f -> f.id == folderId } }
+                } else null
+                filterValue = folder?.path ?: name
+                title = filterValue.substringAfterLast('/').ifEmpty { filterValue.substringAfterLast(":") }
+            }
+            "folder" -> {
+                filterValue = name
+                title = filterValue.substringAfterLast('/').ifEmpty { filterValue.substringAfterLast(":") }
+            }
+            "artist" -> {
+                filterValue = name
+                title = name
+            }
+            "album" -> {
+                filterValue = name
+                title = name
+            }
+            else -> {
+                filterValue = name
+                title = "全部歌曲"
+            }
+        }
+
+        LocalSongListScreen(
+            filterType = when (type) {
+                "folder_id", "folder" -> "folder"
+                else -> type
+            },
+            filterValue = filterValue,
+            title = title,
+            scrollBehavior = scrollBehavior
+        )
     }
 
     composable(Screen.EveryDay.route){
