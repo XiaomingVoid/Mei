@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.ljyh.mei.data.model.room.AlbumArtistCrossRef
@@ -17,7 +18,6 @@ import com.ljyh.mei.data.model.room.PlaybackHistory
 import com.ljyh.mei.data.model.room.Playlist
 import com.ljyh.mei.data.model.room.PlaylistSongCrossRef
 import com.ljyh.mei.data.model.room.QQSong
-import com.ljyh.mei.data.model.room.ScanFolder
 import com.ljyh.mei.data.model.room.Song
 import com.ljyh.mei.di.dao.AlbumsDao
 import com.ljyh.mei.di.dao.CachedLyricDao
@@ -28,17 +28,17 @@ import com.ljyh.mei.di.dao.LikeDao
 import com.ljyh.mei.di.dao.PlaylistDao
 import com.ljyh.mei.di.dao.PlaylistSongCrossRefDao
 import com.ljyh.mei.di.dao.QQSongDao
-import com.ljyh.mei.di.dao.ScanFolderDao
 import com.ljyh.mei.di.dao.SongDao
 
 @Database(
     entities = [
         CacheColor::class, Song::class, Like::class, QQSong::class, Playlist::class,
         PlaybackHistory::class, AlbumEntity::class, ArtistEntity::class, AlbumArtistCrossRef::class,
-        CachedLyric::class, DownloadTask::class, PlaylistSongCrossRef::class, ScanFolder::class
+        CachedLyric::class, DownloadTask::class, PlaylistSongCrossRef::class
     ],
-    version = 13
+    version = 14
 )
+@TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun colorDao(): ColorDao
     abstract fun songDao(): SongDao
@@ -50,7 +50,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun cachedLyricDao(): CachedLyricDao
     abstract fun downloadDao(): DownloadDao
     abstract fun playlistSongCrossRefDao(): PlaylistSongCrossRefDao
-    abstract fun scanFolderDao(): ScanFolderDao
 
     companion object {
         val MIGRATION_8_9 = object : Migration(8, 9) {
@@ -127,6 +126,20 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 把 artist 从纯文本包成 JSON 数组，拆分 / 分隔的艺术家
+                db.execSQL("""
+                    UPDATE song SET artist = 
+                      CASE WHEN instr(artist, '/') > 0 
+                        THEN '["' || REPLACE(REPLACE(artist, '\\', '\\\\'), '/', '","') || '"]'
+                        ELSE '["' || REPLACE(artist, '\\', '\\\\') || '"]'
+                      END
+                    WHERE artist NOT LIKE '[%'
+                """.trimIndent())
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -136,7 +149,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "app_database"
-                ).addMigrations(MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+                ).addMigrations(MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
                     .build()
                     .also { INSTANCE = it }
             }
