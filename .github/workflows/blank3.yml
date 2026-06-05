@@ -1,0 +1,54 @@
+name: Build and Release APK
+
+on:
+  push:
+    tags:
+      - 'v*' # 当你推送以 v 开头的标签（例如 v1.0, v2.1.3）时，触发自动构建并发布
+  workflow_dispatch: # 保留手动触发按钮，方便平时测试构建（手动触发只会构建，不发布）
+
+jobs:
+  build-and-release:
+    name: Build & Release APK
+    runs-on: ubuntu-latest
+
+    # 赋予工作流写入 Releases 的权限
+    permissions:
+      contents: write
+
+    steps:
+      # 1. 检出代码
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 2. 设置 JDK 环境
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      # 3. 设置 Gradle 环境（自带依赖与配置缓存）
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # 4. 授予 Gradle 执行权限
+      - name: Grant Execute Permission for Gradlew
+        run: chmod +x gradlew
+
+      # 5. 执行编译打包
+      - name: Build with Gradle
+        run: ./gradlew assembleDebug --stacktrace
+
+      # 6. 自动发布到 GitHub Releases（仅在推送 Tag 时执行）
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') # 确保只有推 Tag 时才跑这个步骤
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/build/outputs/apk/debug/*.apk # 自动扫描并上传该路径下的所有 APK
+          name: "Release ${{ github.ref_name }}"
+          tag_name: ${{ github.ref }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true # 自动根据提交记录（Commit）生成版本日志
