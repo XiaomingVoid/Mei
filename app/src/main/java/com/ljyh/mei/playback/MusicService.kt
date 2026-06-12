@@ -367,7 +367,7 @@ class MusicService : MediaLibraryService(),
         val song = Song(
             id = mediaItem.mediaId,
             title = metadata.title?.toString() ?: "未知标题",
-            artist = metadata.artist?.toString() ?: "未知歌手",
+            artist = listOf(metadata.artist?.toString() ?: "未知歌手"),
             album = metadata.albumTitle?.toString() ?: "未知专辑",
             cover = metadata.artworkUri?.toString() ?: "", // 这里需要处理图片路径
             duration = metadata.durationMs ?: 0,
