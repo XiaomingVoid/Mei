@@ -1,0 +1,107 @@
+name: Release
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: '要创建的标签名 (例如: v1.0.0)'
+        required: true
+        type: string
+      release_notes:
+        description: '发布说明 (可选，默认使用 .github/release_notes.md)'
+        required: false
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 确保有权限创建 Tag 和 Release
+    
+    steps:
+      # 1. 检出代码（升级至 v4，自动处理不同触发源的 ref）
+      - uses: actions/checkout@v4
+
+      # 2. 配置 Java 环境（升级至 v4）
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      # 3. 配置 Gradle 环境（使用官方推荐的全新现代化 Action，自带强大的缓存机制）
+      - uses: gradle/actions/setup-gradle@v4
+
+      # 4. 执行 Gradle 编译
+      - name: Build with Gradle
+        run: ./gradlew assembleRelease
+
+      # 5. 签名 APK
+      - uses: r0adkll/sign-android-release@v1
+        id: sign_app
+        with:
+          releaseDirectory: app/build/outputs/apk/release
+          signingKeyBase64: ${{ secrets.SIGNING_KEY }}
+          alias: ${{ secrets.ALIAS }}
+          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+        env:
+          BUILD_TOOLS_VERSION: "34.0.0"
+
+      # 6. 重命名 APK 文件（通过 env 传递变量，防止特殊字符引发脚本崩溃）
+      - name: Rename APK file
+        env:
+          SIGNED_FILE: ${{ steps.sign_app.outputs.signedReleaseFile }}
+          TAG_NAME: ${{ github.event.inputs.tag_name }}
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            mv "$SIGNED_FILE" "Mei_${TAG_NAME}.apk"
+          else
+            mv "$SIGNED_FILE" "Mei_${GITHUB_REF_NAME}.apk"
+          fi
+
+      # 7. 读取或生成发布说明（修复多行文本注入隐患，采用更安全的 GITHUB_OUTPUT 写入方式）
+      - name: Read Release Notes
+        id: release_notes
+        env:
+          INPUT_RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
+          TAG_NAME: ${{ github.event.inputs.tag_name }}
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "$INPUT_RELEASE_NOTES" ]; then
+            body="$INPUT_RELEASE_NOTES"
+          elif [ -f .github/release_notes.md ]; then
+            body=$(cat .github/release_notes.md)
+          else
+            if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+              body="Release $TAG_NAME"
+            else
+              body="Release $GITHUB_REF_NAME"
+            fi
+          fi
+          
+          # 使用 EOF 块安全写入多行输出
+          echo "BODY<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$body" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      # 8. 手动触发时创建并推送标签（增加了强制覆盖参数 -f，防止因 Tag 已存在而报错崩溃）
+      - name: Create tag for manual release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG_NAME: ${{ github.event.inputs.tag_name }}
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git tag -f "$TAG_NAME" -m "Release $TAG_NAME"
+          git push origin "$TAG_NAME" --force
+
+      # 9. 核心：发布到 GitHub Release
+      - uses: ncipollo/release-action@v1
+        with:
+          artifacts: "*.apk"                         # 自动搜寻根目录下符合格式的 APK 并作为附件上传
+          token: ${{ github.token }}                 # 使用内置的 GitHub Token 鉴权
+          tag: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag_name || github.ref_name }}
+          generateReleaseNotes: true                 # 如果 body 为空，GitHub 会自动生成变更日志
+          body: ${{ steps.release_notes.outputs.BODY }}
+          skipIfReleaseExists: true                  # 如果 Release 已存在则跳过，防止二次运行覆盖原本的发布
