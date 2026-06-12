@@ -40,7 +40,7 @@ data class SimplePlaylist(
             return Song(
                 id = id,
                 title = name,
-                artist = artist,
+                artist = listOf(artist),
                 album = album,
                 cover = picUrl,
                 duration = 0,
@@ -64,7 +64,7 @@ data class SimplePlaylist(
             Song(
                 id = s.id,
                 title = s.name,
-                artist = s.artist,
+                artist = listOf(s.artist),
                 album =s. album,
                 cover = s.picUrl,
                 duration = 0,
