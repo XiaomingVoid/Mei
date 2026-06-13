@@ -30,37 +30,27 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 21
+          java-version: 17
 
       - name: Setup Gradle
         uses: gradle/gradle-build-action@v2
         with:
           gradle-version: 9.5.1
 
-      - name: Build Release APK
+      - name: Build Release APK (Unsigned)
         run: ./gradlew assembleRelease --no-daemon --stacktrace
         env:
           GRADLE_USER_HOME: ${{ runner.temp }}/.gradle
 
-      - uses: r0adkll/sign-android-release@v1
-        id: sign_app
-        with:
-          releaseDirectory: app/build/outputs/apk/release
-          signingKeyBase64: ${{ secrets.SIGNING_KEY }}
-          alias: ${{ secrets.ALIAS }}
-          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
-        env:
-          BUILD_TOOLS_VERSION: "34.0.0"
-
-      # 根据触发方式决定APK文件名
-      - name: Rename APK file
+      # 跳过签名步骤，直接使用未签名的 APK
+      - name: Prepare APK files
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            mv ${{ steps.sign_app.outputs.signedReleaseFile }} Mei_${{ github.event.inputs.tag_name }}.apk
+            cp app/build/outputs/apk/release/app-release-unsigned.apk Mei_${{ github.event.inputs.tag_name }}.apk
           else
-            mv ${{ steps.sign_app.outputs.signedReleaseFile }} Mei_${GITHUB_REF_NAME}.apk
+            cp app/build/outputs/apk/release/app-release-unsigned.apk Mei_${GITHUB_REF_NAME}.apk
           fi
+          ls -lh *.apk
 
       - name: Read Release Notes
         id: release_notes
