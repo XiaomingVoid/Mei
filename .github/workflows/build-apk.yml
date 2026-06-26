@@ -1,0 +1,75 @@
+name: Build & Sign APK (Temporary Signing)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2
+        with:
+          gradle-version: current
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease
+
+      - name: Generate Temporary Keystore
+        id: generate_keystore
+        run: |
+          keytool -genkey -v -keystore temp.jks -keyalg RSA -keysize 2048 -validity 10000 -alias my-key-alias -storepass my-store-password -keypass my-key-password -dname "CN=Mei, OU=App, O=Mei, L=City, S=State, C=CN"
+          KEYSTORE_BASE64=$(base64 -w 0 temp.jks)
+          echo "keystore_base64=$KEYSTORE_BASE64" >> $GITHUB_OUTPUT
+
+      - name: Sign Release APK
+        uses: r0adkll/sign-android-release@v1
+        id: sign_app
+        with:
+          releaseDirectory: app/build/outputs/apk/release
+          signingKeyBase64: ${{ steps.generate_keystore.outputs.keystore_base64 }}
+          alias: my-key-alias
+          keyStorePassword: my-store-password
+          keyPassword: my-key-password
+        env:
+          BUILD_TOOLS_VERSION: "34.0.0"
+
+      - name: Rename Signed APK
+        run: |
+          mv ${{ steps.sign_app.outputs.signedReleaseFile }} app-release-signed.apk
+
+      - name: Upload Signed APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mei-release-signed
+          path: app-release-signed.apk
+
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "app-release-signed.apk"
+          token: ${{ github.token }}
+          tag: "v1.53.1-build-${{ github.run_number }}"
+          name: "Mei v1.53.1 (Temporary Signed Build #${{ github.run_number }})"
+          body: |
+            This release is automatically built and signed with a temporary keystore for testing purposes.
+            
+            Commit: ${{ github.sha }}
+          allowUpdates: true
+          omitBodyDuringUpdate: true
+          omitNameDuringUpdate: true
