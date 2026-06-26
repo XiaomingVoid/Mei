@@ -25,6 +25,10 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.ref }}
 
+      - name: Use Official Gradle Distribution URL (Fix Timeout)
+        run: |
+          sed -i 's|mirrors.cloud.tencent.com/gradle|services.gradle.org/distributions|g' gradle/wrapper/gradle-wrapper.properties
+
       - uses: actions/setup-java@v3
         with:
           distribution: temurin
