@@ -92,9 +92,9 @@ fun AmbientBackground(
 //    }
 
     val blurEffect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        remember {
-            val radius = with(density) { 100.dp.toPx() }
-            RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.MIRROR)
+        remember(density) {
+            val radius = with(density) { 15.dp.toPx() }
+            RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.CLAMP)
                 .asComposeRenderEffect()
         }
     } else null
@@ -115,11 +115,11 @@ fun AmbientBackground(
                 .fillMaxSize()
                 .then(
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && blurEffect != null) {
-                        // Android 12+：保留你原来的 RenderEffect 逻辑
+                        // Android 12+：使用低分辨率进行渲染模糊，并大幅放大拉伸以覆盖整个背景
                         Modifier.graphicsLayer {
                             renderEffect = blurEffect
-                            scaleX = 1.3f
-                            scaleY = 1.3f
+                            scaleX = 13f
+                            scaleY = 13f
                         }
                     } else {
                         Modifier.cloudy(radius = 25)
@@ -132,7 +132,12 @@ fun AmbientBackground(
         ) {
             FluidCanvasImproved(
                 colors = listOf(c1, c2, c3, c4),
-                isDark = isDark
+                isDark = isDark,
+                modifier = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && blurEffect != null) {
+                    Modifier.fillMaxSize(0.1f)
+                } else {
+                    Modifier.fillMaxSize()
+                }
             )
         }
 
@@ -155,7 +160,11 @@ fun AmbientBackground(
 }
 
 @Composable
-fun FluidCanvasImproved(colors: List<Color>, isDark: Boolean) {
+fun FluidCanvasImproved(
+    colors: List<Color>,
+    isDark: Boolean,
+    modifier: Modifier = Modifier
+) {
     val infiniteTransition = rememberInfiniteTransition(label = "fluid")
 
     // 定义三种不同频率的运动，打破规律感
@@ -172,7 +181,7 @@ fun FluidCanvasImproved(colors: List<Color>, isDark: Boolean) {
         animationSpec = infiniteRepeatable(tween(18000, easing = LinearEasing), RepeatMode.Reverse), label = "t3"
     )
 
-    Canvas(modifier = Modifier.fillMaxSize()) {
+    Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
 

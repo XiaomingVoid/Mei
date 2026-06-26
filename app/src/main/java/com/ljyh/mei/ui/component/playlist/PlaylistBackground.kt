@@ -5,9 +5,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -20,9 +22,13 @@ fun PlaylistBackground(coverUrl: String?) {
                 model = coverUrl,
                 contentDescription = null,
                 modifier = Modifier
-                    .fillMaxSize()
-                    .blur(50.dp)
-                    .matchParentSize(),
+                    .fillMaxSize(0.1f) // Downscale to 10%
+                    .align(Alignment.Center)
+                    .blur(5.dp) // Blur radius is also 10%
+                    .graphicsLayer {
+                        scaleX = 10f
+                        scaleY = 10f
+                    },
                 contentScale = ContentScale.Crop,
                 alpha = 0.6f
             )
