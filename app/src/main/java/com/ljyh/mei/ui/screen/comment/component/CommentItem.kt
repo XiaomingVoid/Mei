@@ -32,6 +32,7 @@ import coil3.compose.AsyncImage
 import com.ljyh.mei.data.model.weapi.CommentX
 import com.ljyh.mei.data.model.weapi.FComment
 import com.ljyh.mei.data.network.Resource
+import timber.log.Timber
 
 @Composable
 fun CommentItem(
@@ -84,7 +85,7 @@ fun CommentItem(
                         color = MaterialTheme.colorScheme.outline
                     )
 
-                    if (comment.ipLocation.location.isNotEmpty()) {
+                    if (comment.ipLocation?.location?.isNotBlank() == true) {
                         Text(
                             text = "  IP: ${comment.ipLocation.location}",
                             style = MaterialTheme.typography.labelSmall,
@@ -110,12 +111,12 @@ fun CommentItem(
                     )
                 }
 
-                val floorCount = comment.showFloorComment.replyCount
+                val floorCount = comment.showFloorComment?.replyCount?: 0
                 if (floorCount > 0) {
                     Spacer(modifier = Modifier.height(6.dp))
                     // 3. 展开楼中楼按钮：降级到 labelSmall，并且稍微加粗使其显眼但字号不突兀
                     Text(
-                        text = if (isExpanded) "收起回复" else "展开 ${floorCount} 条回复",
+                        text = if (isExpanded) "收起回复" else "展开 $floorCount 条回复",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier
@@ -160,6 +161,7 @@ fun CommentItem(
                         }
                     }
                     is Resource.Error -> {
+                        Timber.d("子评论加载失败"+floorComments.message)
                         Text(
                             text = "加载失败",
                             style = MaterialTheme.typography.labelSmall,
