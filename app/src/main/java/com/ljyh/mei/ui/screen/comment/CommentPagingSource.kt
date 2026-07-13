@@ -6,6 +6,7 @@ import com.ljyh.mei.data.model.api.CommentSortType
 import com.ljyh.mei.data.model.weapi.CommentX
 import com.ljyh.mei.data.network.Resource
 import com.ljyh.mei.data.repository.CommentRepository
+import timber.log.Timber
 
 class CommentPagingSource(
     private val repository: CommentRepository,
@@ -24,6 +25,7 @@ class CommentPagingSource(
                 CommentSortType.HOT -> "normalHot#${(pageNo - 1) * params.loadSize}"
                 CommentSortType.RECOMMEND -> "${(pageNo - 1) * params.loadSize}"
             }
+            Timber.d(songId.toString())
 
             val result = repository.getComment(
                 id = songId,

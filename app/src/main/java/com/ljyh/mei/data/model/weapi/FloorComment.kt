@@ -64,7 +64,7 @@ data class FComment(
     @SerializedName("owner")
     val owner: Boolean,
     @SerializedName("parentCommentId")
-    val parentCommentId: Int,
+    val parentCommentId: Long,
     @SerializedName("pendantData")
     val pendantData: Any,
     @SerializedName("repliedMark")
@@ -91,7 +91,7 @@ data class OwnerComment(
     @SerializedName("beReplied")
     val beReplied: List<Any?>,
     @SerializedName("commentId")
-    val commentId: Int,
+    val commentId: Long,
     @SerializedName("commentLocationType")
     val commentLocationType: Int,
     @SerializedName("content")
@@ -121,7 +121,7 @@ data class OwnerComment(
     @SerializedName("owner")
     val owner: Boolean,
     @SerializedName("parentCommentId")
-    val parentCommentId: Int,
+    val parentCommentId: Long,
     @SerializedName("pendantData")
     val pendantData: Any,
     @SerializedName("repliedMark")
