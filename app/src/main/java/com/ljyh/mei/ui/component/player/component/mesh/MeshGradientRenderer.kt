@@ -1,11 +1,9 @@
 package com.ljyh.mei.ui.component.player.component.mesh
 
-import android.content.Context
 import android.graphics.Bitmap
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.opengl.GLUtils
-import android.util.Log
 import timber.log.Timber
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -62,6 +60,12 @@ class MeshGradientRenderer : GLSurfaceView.Renderer {
 
     private val random = java.util.Random()
 
+    // Immortalis/Mali GPU compatibility flags
+    private var isImmortalIsGpu: Boolean = false
+    private var shaderCompileFailed: Boolean = false
+    private var consecutiveGLErrors: Int = 0
+    private val MAX_GL_ERRORS_BEFORE_FALLBACK = 10
+
     fun setAlbum(bitmap: Bitmap) {
         synchronized(this) {
             val old = pendingAlbum
@@ -75,9 +79,19 @@ class MeshGradientRenderer : GLSurfaceView.Renderer {
 
     override fun onSurfaceCreated(gl: GL10?, config: javax.microedition.khronos.egl.EGLConfig?) {
 
-        Timber.tag(TAG).d("GPU 渲染器: ${GLES30.glGetString(GLES30.GL_RENDERER)}")
-        Timber.tag(TAG).d("GPU 厂商: ${GLES30.glGetString(GLES30.GL_VENDOR)}")
-        Timber.tag(TAG).d("GL 版本: ${GLES30.glGetString(GLES30.GL_VERSION)}")
+        val gpuRenderer = GLES30.glGetString(GLES30.GL_RENDERER) ?: "unknown"
+        val gpuVendor = GLES30.glGetString(GLES30.GL_VENDOR) ?: "unknown"
+        val glVersion = GLES30.glGetString(GLES30.GL_VERSION) ?: "unknown"
+        Timber.tag(TAG).d("GPU 渲染器: $gpuRenderer")
+        Timber.tag(TAG).d("GPU 厂商: $gpuVendor")
+        Timber.tag(TAG).d("GL 版本: $glVersion")
+
+        // Detect Immortalis/Mali GPU for targeted workarounds
+        isImmortalIsGpu = gpuRenderer.contains("Immortalis", ignoreCase = true) ||
+                gpuRenderer.contains("Mali", ignoreCase = true)
+        if (isImmortalIsGpu) {
+            Timber.tag(TAG).w("检测到 Immortalis/Mali GPU，启用兼容模式")
+        }
 
         GLES30.glClearColor(0f, 0f, 0f, 1f)
         GLES30.glEnable(GLES30.GL_BLEND)
@@ -87,6 +101,11 @@ class MeshGradientRenderer : GLSurfaceView.Renderer {
             createProgram(ShaderSource.MESH_VERTEX_SHADER, ShaderSource.MESH_FRAGMENT_SHADER)
         quadProgram =
             createProgram(ShaderSource.QUAD_VERTEX_SHADER, ShaderSource.QUAD_FRAGMENT_SHADER)
+
+        if (mainProgram == 0 || quadProgram == 0) {
+            Timber.tag(TAG).e("着色器程序创建失败，mainProgram=$mainProgram, quadProgram=$quadProgram")
+            shaderCompileFailed = true
+        }
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -96,16 +115,28 @@ class MeshGradientRenderer : GLSurfaceView.Renderer {
     }
 
     fun rebuildFbo() {
-        scaledWidth = maxOf(1, (viewWidth * renderScale).toInt())
-        scaledHeight = maxOf(1, (viewHeight * renderScale).toInt())
+        // Align to multiples of 4 for Immortalis/Mali GPU compatibility.
+        // These GPUs are sensitive to non-aligned FBO texture dimensions.
+        scaledWidth = maxOf(4, ((viewWidth * renderScale).toInt() + 3) and 3.inv())
+        scaledHeight = maxOf(4, ((viewHeight * renderScale).toInt() + 3) and 3.inv())
+        Timber.tag(TAG).d("Rebuilding FBO: ${viewWidth}x${viewHeight} -> ${scaledWidth}x${scaledHeight} (scale=$renderScale)")
         createFbo(scaledWidth, scaledHeight)
     }
 
     override fun onDrawFrame(gl: GL10?) {
+        // If shaders failed to compile, don't try to render
+        if (shaderCompileFailed) {
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+            GLES30.glClearColor(0.05f, 0.05f, 0.1f, 1f) // Dark blue-ish fallback instead of pure black
+            GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+            return
+        }
+
         processPendingAlbum()
 
         if (meshStates.isEmpty() || fbo == 0) {
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+            GLES30.glClearColor(0.05f, 0.05f, 0.1f, 1f)
             GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
             return
         }
@@ -123,6 +154,9 @@ class MeshGradientRenderer : GLSurfaceView.Renderer {
 
         updateMeshStates(1f / 60f)
 
+        // Clear any prior GL errors before rendering
+        drainGLErrors()
+
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
         GLES30.glClearColor(0f, 0f, 0f, 1f)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
@@ -139,6 +173,18 @@ class MeshGradientRenderer : GLSurfaceView.Renderer {
             GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
 
             drawMesh(state, time)
+
+            // Check for GL errors after mesh draw
+            if (checkGLError("drawMesh")) {
+                consecutiveGLErrors++
+                if (consecutiveGLErrors > MAX_GL_ERRORS_BEFORE_FALLBACK) {
+                    Timber.tag(TAG).e("连续 GL 错误过多，停止渲染以避免 GPU hang")
+                    shaderCompileFailed = true // Force fallback
+                    return
+                }
+            } else {
+                consecutiveGLErrors = 0
+            }
 
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
             GLES30.glViewport(0, 0, viewWidth, viewHeight)
@@ -347,7 +393,12 @@ class MeshGradientRenderer : GLSurfaceView.Renderer {
         if (fbo != 0) {
             GLES30.glDeleteFramebuffers(1, intArrayOf(fbo), 0)
             GLES30.glDeleteTextures(1, intArrayOf(fboTexture), 0)
+            fbo = 0
+            fboTexture = 0
         }
+
+        // Drain any prior errors
+        drainGLErrors()
 
         val fboIds = IntArray(1)
         GLES30.glGenFramebuffers(1, fboIds, 0)
@@ -364,6 +415,9 @@ class MeshGradientRenderer : GLSurfaceView.Renderer {
         )
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
+        // Clamp to edge to avoid border artifacts on Immortalis
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
 
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo)
         GLES30.glFramebufferTexture2D(
@@ -371,13 +425,29 @@ class MeshGradientRenderer : GLSurfaceView.Renderer {
             GLES30.GL_TEXTURE_2D, fboTexture, 0
         )
 
-        // 【核心日志】：检查天玑 GPU 是否承认你创建的离屏 FBO
         val fboStatus = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
         if (fboStatus != GLES30.GL_FRAMEBUFFER_COMPLETE) {
             Timber.tag(TAG)
-                .e("FBO 创建失败，状态码为: $fboStatus (可能因为尺寸 $width x $height 导致 Mali 硬件拒绝)")
+                .e("FBO 创建失败，状态码: $fboStatus (尺寸 ${width}x${height}, Immortalis=$isImmortalIsGpu)")
+
+            // Retry with smaller, power-of-two aligned dimensions for Immortalis compatibility
+            if (isImmortalIsGpu && (width > 64 || height > 64)) {
+                Timber.tag(TAG).w("尝试使用更小的 FBO 尺寸作为 fallback")
+                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+                GLES30.glDeleteFramebuffers(1, intArrayOf(fbo), 0)
+                GLES30.glDeleteTextures(1, intArrayOf(fboTexture), 0)
+                fbo = 0
+                fboTexture = 0
+                // Retry with half size
+                val halfW = maxOf(4, (width / 2 + 3) and 3.inv())
+                val halfH = maxOf(4, (height / 2 + 3) and 3.inv())
+                scaledWidth = halfW
+                scaledHeight = halfH
+                createFbo(halfW, halfH)
+                return
+            }
         } else {
-            Timber.tag(TAG).d("FBO 成功创建并绑定完成: $width x $height")
+            Timber.tag(TAG).d("FBO 创建成功: ${width}x${height}")
         }
 
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
@@ -448,49 +518,26 @@ class MeshGradientRenderer : GLSurfaceView.Renderer {
         }
         return shader
     }
-}
-class MeshBackgroundView(context: Context) : GLSurfaceView(context) {
 
-    private val renderer = MeshGradientRenderer()
-
-    init {
-        setEGLContextClientVersion(3)
-        setEGLConfigChooser(8, 8, 8, 8, 0, 0)
-        setRenderer(renderer)
-        renderMode = RENDERMODE_CONTINUOUSLY
+    /**
+     * Check for GL errors and log them. Returns true if an error was found.
+     */
+    private fun checkGLError(operation: String): Boolean {
+        val error = GLES30.glGetError()
+        if (error != GLES30.GL_NO_ERROR) {
+            Timber.tag(TAG).e("GL 错误 after $operation: 0x${Integer.toHexString(error)}")
+            return true
+        }
+        return false
     }
 
-    fun setAlbum(bitmap: Bitmap) {
-        queueEvent { renderer.setAlbum(bitmap) }
-    }
-
-    fun updateVolume(v: Float) {
-        renderer.volume = v
-    }
-
-    fun setFlowSpeed(speed: Float) {
-        renderer.flowSpeed = speed
-    }
-
-    fun setRenderScale(scale: Float) {
-        renderer.renderScale = scale
-        queueEvent { renderer.rebuildFbo() }
-    }
-
-    fun setSubdivision(level: Int) {
-        renderer.subdivision = level
-    }
-
-    fun setStaticMode(enable: Boolean) {
-        queueEvent { renderer.setStaticMode(enable) }
-    }
-
-    fun setPlaying(playing: Boolean) {
-        renderer.setPlaying(playing)
-    }
-
-    override fun onDetachedFromWindow() {
-        super.onDetachedFromWindow()
-        queueEvent { renderer.release() }
+    /**
+     * Drain all pending GL errors to start fresh.
+     */
+    private fun drainGLErrors() {
+        var safetyCounter = 0
+        while (GLES30.glGetError() != GLES30.GL_NO_ERROR && safetyCounter < 100) {
+            safetyCounter++
+        }
     }
 }

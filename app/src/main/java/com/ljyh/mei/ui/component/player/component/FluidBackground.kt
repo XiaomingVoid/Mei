@@ -1,6 +1,5 @@
 package com.ljyh.mei.ui.component.player.component
 
-import android.os.Build
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -18,7 +17,7 @@ import com.ljyh.mei.constants.MeshPlayingKey
 import com.ljyh.mei.constants.MeshRenderScaleKey
 import com.ljyh.mei.constants.MeshStaticModeKey
 import com.ljyh.mei.constants.MeshSubdivisionKey
-import com.ljyh.mei.ui.component.player.component.mesh.MeshBackgroundView
+import com.ljyh.mei.ui.component.player.component.mesh.MeshBackgroundTextureView
 import com.ljyh.mei.utils.audio.AudioVisualizerManager
 import com.ljyh.mei.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
@@ -70,14 +69,13 @@ fun FluidBackground(
     // 如果你想绝对保险，可以写 >= Build.VERSION_CODES.LOLLIPOP (21)
     AndroidView(
         factory = { ctx ->
-            MeshBackgroundView(ctx).apply {
-                // 初始化时的默认值
+            MeshBackgroundTextureView(ctx).apply {
+                // Initial configuration
                 setFlowSpeed(flowSpeed)
                 setRenderScale(renderScale)
                 setSubdivision(subdivision)
                 setStaticMode(staticMode)
                 setPlaying(shouldAnimate)
-                setPreserveEGLContextOnPause(true)
             }
         },
         update = { view ->

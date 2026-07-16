@@ -1,9 +1,10 @@
-name: Build & Sign APK (Temporary Signing)
+name: Build & Sign APK
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -14,30 +15,40 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Use Official Gradle Distribution URL (Fix Timeout)
+      - name: Use Official Gradle Distribution URL
         run: |
           sed -i 's|mirrors.cloud.tencent.com/gradle|services.gradle.org/distributions|g' gradle/wrapper/gradle-wrapper.properties
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
 
       - name: Setup Gradle
-        uses: gradle/gradle-build-action@v2
-        with:
-          gradle-version: current
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant Execute Permission for gradlew
+        run: chmod +x gradlew
 
       - name: Build Release APK
-        run: ./gradlew assembleRelease
+        run: ./gradlew assembleRelease --no-daemon
 
       - name: Generate Temporary Keystore
         id: generate_keystore
         run: |
-          keytool -genkey -v -keystore temp.jks -storetype jks -keyalg RSA -keysize 2048 -validity 10000 -alias my-key-alias -storepass my-store-password -keypass my-key-password -dname "CN=Mei, OU=App, O=Mei, L=City, S=State, C=CN"
+          keytool -genkey -v \
+            -keystore temp.jks \
+            -storetype jks \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -alias mei-temp \
+            -storepass temp-store-password \
+            -keypass temp-key-password \
+            -dname "CN=Mei, OU=Dev, O=Mei, L=Shanghai, S=Shanghai, C=CN"
           KEYSTORE_BASE64=$(base64 -w 0 temp.jks)
           echo "keystore_base64=$KEYSTORE_BASE64" >> $GITHUB_OUTPUT
 
@@ -47,33 +58,40 @@ jobs:
         with:
           releaseDirectory: app/build/outputs/apk/release
           signingKeyBase64: ${{ steps.generate_keystore.outputs.keystore_base64 }}
-          alias: my-key-alias
-          keyStorePassword: my-store-password
-          keyPassword: my-key-password
+          alias: mei-temp
+          keyStorePassword: temp-store-password
+          keyPassword: temp-key-password
         env:
-          BUILD_TOOLS_VERSION: "34.0.0"
+          BUILD_TOOLS_VERSION: "35.0.0"
+
+      - name: Get Version Name
+        id: version
+        run: |
+          VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts || echo "unknown")
+          echo "name=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Rename Signed APK
         run: |
-          mv ${{ steps.sign_app.outputs.signedReleaseFile }} app-release-signed.apk
+          mv ${{ steps.sign_app.outputs.signedReleaseFile }} Mei-v${{ steps.version.outputs.name }}-build${{ github.run_number }}.apk
 
-      - name: Upload Signed APK Artifact
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Mei-release-signed
-          path: app-release-signed.apk
+          name: Mei-v${{ steps.version.outputs.name }}-build${{ github.run_number }}
+          path: Mei-v${{ steps.version.outputs.name }}-build${{ github.run_number }}.apk
 
-      - name: Create GitHub Release
+      - name: Create Release (main branch only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "app-release-signed.apk"
+          artifacts: "Mei-*.apk"
           token: ${{ github.token }}
-          tag: "v1.53.1-build-${{ github.run_number }}"
-          name: "Mei v1.53.1 (Temporary Signed Build #${{ github.run_number }})"
+          tag: "v${{ steps.version.outputs.name }}-build${{ github.run_number }}"
+          name: "Mei v${{ steps.version.outputs.name }} (Build #${{ github.run_number }})"
           body: |
-            This release is automatically built and signed with a temporary keystore for testing purposes.
+            自动构建 - 临时签名
             
             Commit: ${{ github.sha }}
+            Branch: ${{ github.ref_name }}
           allowUpdates: true
-          omitBodyDuringUpdate: true
-          omitNameDuringUpdate: true
+          makeLatest: true
