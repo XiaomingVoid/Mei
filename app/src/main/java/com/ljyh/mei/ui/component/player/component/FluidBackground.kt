@@ -54,11 +54,11 @@ fun FluidBackground(
     // 监听音乐低频数值（用于节拍感应）
     val bass by audioVisualizerManager.bassValue.collectAsState()
 
-    // 绑定与原 OpenGL 网格背景完全相同的外观设置 Key
-    val (flowSpeed) = rememberPreference(MeshFlowSpeedKey, defaultValue = 0.25f)
-    val (staticMode) = rememberPreference(MeshStaticModeKey, defaultValue = false)
-    val (meshPlaying) = rememberPreference(MeshPlayingKey, defaultValue = true)
-    val (volumeScale) = rememberPreference(MeshLowFreqVolumeKey, defaultValue = 0.1f)
+    // 使用 by 属性委托，避免单变量解构产生的编译器类型推断歧义
+    val flowSpeed by rememberPreference(MeshFlowSpeedKey, defaultValue = 0.25f)
+    val staticMode by rememberPreference(MeshStaticModeKey, defaultValue = false)
+    val meshPlaying by rememberPreference(MeshPlayingKey, defaultValue = true)
+    val volumeScale by rememberPreference(MeshLowFreqVolumeKey, defaultValue = 0.1f)
 
     // 默认兜底种子颜色
     val defaultColors = remember(isDark) {
@@ -226,9 +226,9 @@ fun FluidBackground(
 }
 
 /**
- * 提取鲜艳的高保真背景色彩
+ * 提取鲜艳的高保真背景色彩 (设为 private 以避免与 AmbientBackground.kt 中同包下的公开顶层函数冲突)
  */
-fun extractVibrantColorsImproved(bitmap: Bitmap, isDark: Boolean): List<Color> {
+private fun extractVibrantColorsImproved(bitmap: Bitmap, isDark: Boolean): List<Color> {
     val palette = Palette.from(bitmap)
         .maximumColorCount(24)
         .generate()
@@ -261,15 +261,15 @@ fun extractVibrantColorsImproved(bitmap: Bitmap, isDark: Boolean): List<Color> {
     return listOf(c1, c2, c3, c4)
 }
 
-// --- 背景色彩饱和度、色相转换和亮度工具函数 ---
+// --- 背景色彩饱和度、色相转换和亮度工具函数 (均标记为 private 局部扩展函数防止编译命名冲突) ---
 
-fun Color.isGrayscale(threshold: Float = 0.15f): Boolean {
+private fun Color.isGrayscale(threshold: Float = 0.15f): Boolean {
     val hsl = FloatArray(3)
     ColorUtils.colorToHSL(this.toArgb(), hsl)
     return hsl[1] < threshold
 }
 
-fun Color.forceHueIfGray(): Color {
+private fun Color.forceHueIfGray(): Color {
     val hsl = FloatArray(3)
     ColorUtils.colorToHSL(this.toArgb(), hsl)
     if (hsl[1] < 0.05f) {
@@ -279,7 +279,7 @@ fun Color.forceHueIfGray(): Color {
     return Color(ColorUtils.HSLToColor(hsl))
 }
 
-fun Color.boostSaturation(multiplier: Float): Color {
+private fun Color.boostSaturation(multiplier: Float): Color {
     val hsl = FloatArray(3)
     ColorUtils.colorToHSL(this.toArgb(), hsl)
     if (hsl[2] < 0.2f) hsl[2] = 0.2f
@@ -287,21 +287,21 @@ fun Color.boostSaturation(multiplier: Float): Color {
     return Color(ColorUtils.HSLToColor(hsl))
 }
 
-fun Color.darken(factor: Float): Color {
+private fun Color.darken(factor: Float): Color {
     val hsl = FloatArray(3)
     ColorUtils.colorToHSL(this.toArgb(), hsl)
     hsl[2] = (hsl[2] * (1f - factor)).coerceIn(0f, 1f)
     return Color(ColorUtils.HSLToColor(hsl))
 }
 
-fun Color.lighten(factor: Float): Color {
+private fun Color.lighten(factor: Float): Color {
     val hsl = FloatArray(3)
     ColorUtils.colorToHSL(this.toArgb(), hsl)
     hsl[2] = (hsl[2] + (1f - hsl[2]) * factor).coerceIn(0f, 1f)
     return Color(ColorUtils.HSLToColor(hsl))
 }
 
-fun Color.shiftHue(amount: Float): Color {
+private fun Color.shiftHue(amount: Float): Color {
     val hsl = FloatArray(3)
     ColorUtils.colorToHSL(this.toArgb(), hsl)
     hsl[0] = (hsl[0] + amount).mod(360f)
