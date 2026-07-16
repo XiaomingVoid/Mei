@@ -1,6 +1,5 @@
 package com.ljyh.mei.ui.component.player.component
 
-import android.graphics.Bitmap
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.os.Build
@@ -17,12 +16,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-import androidx.core.graphics.ColorUtils
-import androidx.palette.graphics.Palette
 import coil3.ImageLoader
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
@@ -54,7 +50,7 @@ fun FluidBackground(
     // 监听音乐低频数值（用于节拍感应）
     val bass by audioVisualizerManager.bassValue.collectAsState()
 
-    // 使用 by 属性委托，避免单变量解构产生的编译器类型推断歧义
+    // 绑定与原 OpenGL 网格背景完全相同的外观设置 Key
     val flowSpeed by rememberPreference(MeshFlowSpeedKey, defaultValue = 0.25f)
     val staticMode by rememberPreference(MeshStaticModeKey, defaultValue = false)
     val meshPlaying by rememberPreference(MeshPlayingKey, defaultValue = true)
@@ -71,7 +67,7 @@ fun FluidBackground(
 
     var fluidColors by remember { mutableStateOf(defaultColors) }
 
-    // 1. 异步封面取色并进行 Apple Music 风格的高饱和色彩增强
+    // 1. 异步封面取色并调用同包下已经对外公开的 extractVibrantColorsImproved 方法
     LaunchedEffect(imageUrl) {
         if (imageUrl.isNullOrEmpty()) {
             fluidColors = defaultColors
@@ -92,7 +88,7 @@ fun FluidBackground(
         }
     }
 
-    // 2. 颜色平滑过渡动画：当切歌或色彩改变时过渡，FastOutSlowInEasing 让色彩交融更有节奏感
+    // 2. 颜色平滑过渡动画
     val animSpec = tween<Color>(durationMillis = 1500, easing = FastOutSlowInEasing)
     val c1 by animateColorAsState(fluidColors[0], animSpec, label = "c1")
     val c2 by animateColorAsState(fluidColors[1], animSpec, label = "c2")
@@ -127,7 +123,7 @@ fun FluidBackground(
     } else null
 
     Box(modifier = modifier.fillMaxSize()) {
-        // 最底层底色，稳固整体基调
+        // 最底层底色，直接调用同包下的 Color.darken 扩展函数
         val baseColor = if (isDark) c2.darken(0.6f) else Color(0xFFF0F0F0)
         Box(modifier = Modifier
             .fillMaxSize()
@@ -223,87 +219,4 @@ fun FluidBackground(
                 )
         )
     }
-}
-
-/**
- * 提取鲜艳的高保真背景色彩 (设为 private 以避免与 AmbientBackground.kt 中同包下的公开顶层函数冲突)
- */
-private fun extractVibrantColorsImproved(bitmap: Bitmap, isDark: Boolean): List<Color> {
-    val palette = Palette.from(bitmap)
-        .maximumColorCount(24)
-        .generate()
-
-    val vibrant = palette.vibrantSwatch
-    val darkVibrant = palette.darkVibrantSwatch
-    val lightVibrant = palette.lightVibrantSwatch
-    val dominant = palette.dominantSwatch
-
-    val seedSwatch = vibrant ?: dominant
-    val seedColor = if (seedSwatch != null) {
-        Color(seedSwatch.rgb)
-    } else {
-        if (isDark) Color(0xFF1A237E) else Color(0xFFE8EAF6)
-    }
-
-    var c1 = vibrant?.rgb?.let { Color(it) } ?: seedColor.boostSaturation(1.5f)
-    var c2 = darkVibrant?.rgb?.let { Color(it) } ?: c1.darken(0.4f)
-    var c3 = lightVibrant?.rgb?.let { Color(it) } ?: c1.lighten(0.3f)
-
-    if (c1.isGrayscale()) c1 = c1.boostSaturation(3.0f).forceHueIfGray()
-    if (c2.isGrayscale()) c2 = c2.boostSaturation(2.0f).forceHueIfGray()
-
-    c1 = c1.boostSaturation(1.3f)
-    c2 = c2.boostSaturation(1.3f)
-    c3 = c3.boostSaturation(1.3f).lighten(0.1f)
-
-    val c4 = c1.shiftHue(40f).lighten(0.1f)
-
-    return listOf(c1, c2, c3, c4)
-}
-
-// --- 背景色彩饱和度、色相转换和亮度工具函数 (均标记为 private 局部扩展函数防止编译命名冲突) ---
-
-private fun Color.isGrayscale(threshold: Float = 0.15f): Boolean {
-    val hsl = FloatArray(3)
-    ColorUtils.colorToHSL(this.toArgb(), hsl)
-    return hsl[1] < threshold
-}
-
-private fun Color.forceHueIfGray(): Color {
-    val hsl = FloatArray(3)
-    ColorUtils.colorToHSL(this.toArgb(), hsl)
-    if (hsl[1] < 0.05f) {
-        hsl[0] = 240f
-        hsl[1] = 0.5f
-    }
-    return Color(ColorUtils.HSLToColor(hsl))
-}
-
-private fun Color.boostSaturation(multiplier: Float): Color {
-    val hsl = FloatArray(3)
-    ColorUtils.colorToHSL(this.toArgb(), hsl)
-    if (hsl[2] < 0.2f) hsl[2] = 0.2f
-    hsl[1] = (hsl[1] * multiplier).coerceIn(0.2f, 1f)
-    return Color(ColorUtils.HSLToColor(hsl))
-}
-
-private fun Color.darken(factor: Float): Color {
-    val hsl = FloatArray(3)
-    ColorUtils.colorToHSL(this.toArgb(), hsl)
-    hsl[2] = (hsl[2] * (1f - factor)).coerceIn(0f, 1f)
-    return Color(ColorUtils.HSLToColor(hsl))
-}
-
-private fun Color.lighten(factor: Float): Color {
-    val hsl = FloatArray(3)
-    ColorUtils.colorToHSL(this.toArgb(), hsl)
-    hsl[2] = (hsl[2] + (1f - hsl[2]) * factor).coerceIn(0f, 1f)
-    return Color(ColorUtils.HSLToColor(hsl))
-}
-
-private fun Color.shiftHue(amount: Float): Color {
-    val hsl = FloatArray(3)
-    ColorUtils.colorToHSL(this.toArgb(), hsl)
-    hsl[0] = (hsl[0] + amount).mod(360f)
-    return Color(ColorUtils.HSLToColor(hsl))
 }
