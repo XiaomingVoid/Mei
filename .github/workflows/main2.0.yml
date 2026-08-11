@@ -1,0 +1,60 @@
+name: Build Fast Signed APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Generate Temporary Keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore temp.keystore \
+            -alias tempkey \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass android \
+            -keypass android \
+            -dname "CN=Temp, OU=Temp, O=Temp, L=Temp, ST=Temp, C=US"
+
+      - name: Build Release APK
+        run: |
+          ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file=$(pwd)/temp.keystore \
+            -Pandroid.injected.signing.store.password=android \
+            -Pandroid.injected.signing.key.alias=tempkey \
+            -Pandroid.injected.signing.key.password=android \
+            --build-cache \
+            --parallel \
+            --no-daemon \
+            -x test \
+            -x lint \
+            -x lintVitalAnalyzeRelease
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mei-Release-APK
+          path: app/build/outputs/apk/release/*.apk
